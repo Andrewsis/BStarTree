@@ -1,0 +1,468 @@
+#include <iostream>
+#include <random>
+#include <chrono>
+
+using namespace std;
+
+const int m = 196;
+
+double diskInsert;
+double diskRemove;
+double diskSearch;
+
+double insertTime;
+double removeTime;
+double searchTime;
+
+double inserts;
+double removes;
+double searches;
+
+class Node {
+public:
+    int* keys;
+    int order;
+    Node** children;
+    int currentSize;
+    bool isLeaf;
+
+    Node(int order, bool _isLeaf)
+    {
+        this->order = order;
+        isLeaf = _isLeaf;
+
+        keys = new int[5 * order - 1];
+        children = new Node * [5 * order];
+        currentSize = 0;
+    }
+
+    void Remove(int key) 
+    {
+        diskRemove++;
+        int idx = 0;
+        while (idx < currentSize && keys[idx] < key)
+        {
+            idx++;
+        }
+
+        if (idx < currentSize && keys[idx] == key) 
+        {
+            if (isLeaf) RemoveFromLeaf(idx);  
+            else RemoveFromNonLeaf(idx);
+        }
+        else 
+        {
+            if (isLeaf) return;
+                
+            bool flag = (idx == currentSize);
+
+            if (children[idx]->currentSize < order) Fill(idx);
+            if (flag && idx > currentSize) children[idx - 1]->Remove(key);     
+            else children[idx]->Remove(key);    
+        }
+    }
+
+    void RemoveFromLeaf(int idx) 
+    {
+        for (int i = idx + 1; i < currentSize; ++i)
+            keys[i - 1] = keys[i];
+
+        currentSize--;
+    }
+
+    void RemoveFromNonLeaf(int idx) 
+    {
+        int k = keys[idx];
+
+        if (children[idx]->currentSize >= order) 
+        {
+            int pred = getPredecessor(idx);
+            keys[idx] = pred;
+            children[idx]->Remove(pred);
+        }
+        else if (children[idx + 1]->currentSize >= order) 
+        {
+            int succ = getSuccessor(idx);
+            keys[idx] = succ;
+            children[idx + 1]->Remove(succ);
+        }
+        else 
+        {
+            Merge(idx);
+            children[idx]->Remove(k);
+        }
+    }
+
+    int getPredecessor(int idx)
+    {
+        Node* cur = children[idx];
+        while (!cur->isLeaf)
+            cur = cur->children[cur->currentSize];
+
+        return cur->keys[cur->currentSize - 1];
+    }
+
+    int getSuccessor(int idx)
+    {
+        Node* cur = children[idx + 1];
+        while (!cur->isLeaf)
+            cur = cur->children[0];
+
+        return cur->keys[0];
+    }
+
+    void Fill(int idx) 
+    {
+        if (idx != 0 && children[idx - 1]->currentSize >= order)
+            BorrowFromPrev(idx);
+        else if (idx != currentSize && children[idx + 1]->currentSize >= order)
+            BorrowFromNext(idx);
+        else
+        {
+            if (idx != currentSize) Merge(idx);
+            else Merge(idx - 1);
+        }
+    }
+
+    void BorrowFromPrev(int idx) 
+    {
+        Node* child = children[idx];
+        Node* sibling = children[idx - 1];
+
+        for (int i = child->currentSize - 1; i >= 0; --i)
+            child->keys[i + 1] = child->keys[i];
+
+        if (!child->isLeaf) 
+        {
+            for (int i = child->currentSize; i >= 0; --i)
+                child->children[i + 1] = child->children[i];
+        }
+
+        child->keys[0] = keys[idx - 1];
+
+        if (!child->isLeaf)
+            child->children[0] = sibling->children[sibling->currentSize];
+
+        keys[idx - 1] = sibling->keys[sibling->currentSize - 1];
+
+        child->currentSize += 1;
+        sibling->currentSize -= 1;
+    }
+
+    void BorrowFromNext(int idx) 
+    {
+        Node* child = children[idx];
+        Node* sibling = children[idx + 1];
+
+        child->keys[child->currentSize] = keys[idx];
+
+        if (!(child->isLeaf))
+            child->children[child->currentSize + 1] = sibling->children[0];
+
+        keys[idx] = sibling->keys[0];
+
+        for (int i = 1; i < sibling->currentSize; ++i)
+            sibling->keys[i - 1] = sibling->keys[i];
+
+        if (!sibling->isLeaf)
+        {
+            for (int i = 1; i <= sibling->currentSize; ++i)
+                sibling->children[i - 1] = sibling->children[i];
+        }
+
+        child->currentSize += 1;
+        sibling->currentSize -= 1;
+    }
+
+    void Merge(int idx) 
+    {
+        Node* child = children[idx];
+        Node* sibling = children[idx + 1];
+
+        child->keys[order - 1] = keys[idx];
+
+        for (int i = 0; i < sibling->currentSize; ++i)
+            child->keys[i + order] = sibling->keys[i];
+
+        if (!child->isLeaf) 
+        {
+            for (int i = 0; i <= sibling->currentSize; ++i)
+                child->children[i + order] = sibling->children[i];
+        }
+
+        for (int i = idx + 1; i < currentSize; ++i)
+            keys[i - 1] = keys[i];
+
+        for (int i = idx + 2; i <= currentSize; ++i)
+            children[i - 1] = children[i];
+
+        child->currentSize += sibling->currentSize + 1;
+        currentSize--;
+
+        delete sibling;
+    }
+
+    void InorderWalk() 
+    {
+        int i;
+        for (i = 0; i < currentSize; i++)
+        {
+            if (!isLeaf) children[i]->InorderWalk();
+            std::cout << " " << keys[i];
+        }
+
+        if (!isLeaf) children[i]->InorderWalk();            
+    }
+
+    Node* Search(int key)
+    {
+        int index = 0;
+        diskSearch++;
+        while (index < currentSize && key > keys[index])         
+            index++;
+           
+        if (index < currentSize && keys[index] == key) return this;  
+
+        if (isLeaf)  return nullptr;
+           
+
+        return children[index]->Search(key);
+    }
+
+    void InsertNonFull(int key) 
+    {
+        int index = currentSize - 1;
+        ++diskInsert;
+
+        if (isLeaf)
+        {
+            while (index >= 0 && keys[index] > key)
+            {
+                keys[index + 1] = keys[index];
+                index--;
+            }
+
+            keys[index + 1] = key;
+            currentSize = currentSize + 1;
+        }
+        else 
+        {
+            while (index >= 0 && keys[index] > key)
+                --index;
+
+            if (children[index + 1]->currentSize == 5 * order - 1) 
+            {
+                SplitChild(index + 1, children[index + 1]);
+
+                if (keys[index + 1] < key) ++index; 
+            }
+
+            children[index + 1]->InsertNonFull(key);
+        }
+    }
+
+    void SplitChild(int index, Node* nodeToSplit) 
+    {
+        Node* newNode = new Node(nodeToSplit->order, nodeToSplit->isLeaf);
+        newNode->currentSize = 2 * order;
+
+        for (int j = 0; j < 2 * order; j++)
+            newNode->keys[j] = nodeToSplit->keys[j + 3 * order - 1];
+            
+        if (!nodeToSplit->isLeaf) 
+        {
+            for (int j = 0; j <= 2 * order; j++)
+                newNode->children[j] = nodeToSplit->children[j + 3 * order - 1];
+        }
+
+        nodeToSplit->currentSize = 3 * order - 1;
+
+        for (int j = currentSize; j >= index + 1; j--)
+            children[j + 1] = children[j];
+
+        children[index + 1] = newNode;
+
+        for (int j = currentSize - 1; j >= index; j--)
+            keys[j + 1] = keys[j];
+
+        keys[index] = nodeToSplit->keys[3 * order - 1];
+
+        currentSize = currentSize + 1;
+    }
+};
+
+class BStarTree 
+{
+public:
+    Node* root;
+    int order;
+
+    BStarTree(int order)
+    {
+        root = nullptr;
+        this->order = order;
+    }
+
+    void InorderWalk() 
+    {
+        if (root != nullptr) root->InorderWalk();
+    }
+
+    Node* Search(int key) 
+    {   
+        if (root == nullptr) return nullptr;
+        else return root->Search(key);
+    }
+
+    void Insert(int key)
+    {
+        ++diskInsert;
+
+        if (root == nullptr)
+        {
+            root = new Node(order, true);
+            root->keys[0] = key;
+            root->currentSize = 1;
+        }
+        else 
+        {
+            if (root->currentSize == 5 * order - 1) 
+            {
+                Node* s = new Node(order, false);
+                s->children[0] = root;
+                s->SplitChild(0, root);
+
+                int i = 0;
+                if (s->keys[0] < key) ++i;
+                    
+                s->children[i]->InsertNonFull(key);
+
+                root = s;
+            }
+            else root->InsertNonFull(key);          
+        }
+    }
+
+    void Remove(int key) 
+    {
+        if (!root) return;
+
+        root->Remove(key);
+
+        if (root->currentSize == 0)
+        {
+            Node* temp = root;
+            if (root->isLeaf)  root = nullptr;
+            else root = root->children[0];
+                
+            delete temp;
+        }
+    }
+
+    void PerformRandomOperation(int operationsQuantity)
+    {
+        srand(time(nullptr));
+        for (int i = 0; i < operationsQuantity; ++i)
+        {
+            int operationType = rand() % 3;
+            auto start = std::chrono::high_resolution_clock::now();
+            auto end = start;
+
+            std::chrono::duration<double> duration;
+
+            if (operationType == 0)
+            {
+                ++removes;
+                start = std::chrono::high_resolution_clock::now();
+                Remove(rand() % 10000);
+                end = std::chrono::high_resolution_clock::now();
+                duration = end - start;
+                removeTime += duration.count();
+            }
+            else if (operationType == 1)
+            {
+                ++inserts;
+                start = std::chrono::high_resolution_clock::now();
+                Insert(rand() % 10000);
+                end = std::chrono::high_resolution_clock::now();
+                duration = end - start;
+                insertTime += duration.count();
+            }
+            else
+            {
+                ++searches;
+                start = std::chrono::high_resolution_clock::now();
+                Search(rand() % 10000);
+                end = std::chrono::high_resolution_clock::now();
+                duration = end - start;
+                searchTime += duration.count();
+            }
+        }
+    }
+
+    double getInsertTime()
+    {
+        return insertTime;
+    }
+
+    double getRemoveTime()
+    {
+        return removeTime;
+    }
+
+    double getSearchTime()
+    {
+        return searchTime;
+    }
+};
+
+int main() 
+{
+    BStarTree tree(m);
+
+    random_device rd;
+    mt19937 gen(rd());
+    uniform_int_distribution<int> dist(1, 1000000);
+
+    for (int i = 0; i < 10; ++i)
+    {
+
+        for (int i = 0; i < 1000000; ++i)
+        {
+            tree.Insert(dist(gen));
+        }
+
+        insertTime = 0;
+        removeTime = 0;
+        searchTime = 0;
+
+        inserts = 0;
+        removes = 0;
+        searches = 0;
+
+        diskInsert = 0;
+        diskRemove = 0;
+        diskSearch = 0;
+
+        tree.PerformRandomOperation(200000);
+
+        cout << "Ins duration: " << tree.getInsertTime() << endl;
+        cout << diskInsert << endl;
+        cout << inserts << endl;
+        cout << "Ins operations: " << diskInsert / inserts << endl;
+
+        cout << endl;
+
+        cout << "Remove duration: " << tree.getRemoveTime() << endl;
+        cout << "Remove operations: " << diskRemove / removes << endl;
+
+        cout << endl;
+
+        cout << "Search duration: " << tree.getSearchTime() << endl;
+        cout << "Search value operations: " << diskSearch / searches << endl;
+
+        cout << "----------------------------" << endl;
+        cout << endl;
+    }
+    return 0;
+}
